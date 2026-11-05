@@ -171,6 +171,36 @@ func TestRuleLiteral(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.318 asks for each "asks" command here under ask: [Bash(touch:*), Bash(rm -rf:*)], measured in a
+// bypass-mode session; the git push ones are the same shapes under the other rule.
+func TestMatchingRule(t *testing.T) {
+	rules := []string{"Bash(git push:*)", "Bash(rm -rf:*)", "Bash(touch:*)"}
+	for _, c := range []struct{ cmd, rule string }{
+		{"git push origin HEAD", "Bash(git push:*)"},
+		{"git  push --force", "Bash(git push:*)"},
+		{"git\tpush", "Bash(git push:*)"},
+		{"'git' push", "Bash(git push:*)"},
+		{"git 'push' origin main", "Bash(git push:*)"},
+		{"git \\\n  push", "Bash(git push:*)"},
+		{"g\\it push", "Bash(git push:*)"},
+		{`"rm" -rf /x`, "Bash(rm -rf:*)"},
+		{"rm  -rf /x", "Bash(rm -rf:*)"},
+		{"cd x &&\n  rm \t-rf y", "Bash(rm -rf:*)"},
+		{"touch\ta3.tmp", "Bash(touch:*)"},
+		{"touch \\\n  a4.tmp", "Bash(touch:*)"},
+		// Flags in another order or split: Claude Code does not ask for these either.
+		{"rm -fr d", ""},
+		{"rm -r -f d", ""},
+		{"git pull", ""},
+		{"cd view && rm -f sub/*", ""},
+		{"echo 'git' && push", ""},
+	} {
+		if got := matchingRule(rules, c.cmd); got != c.rule {
+			t.Errorf("matchingRule(%q) = %q, want %q", c.cmd, got, c.rule)
+		}
+	}
+}
+
 func TestRedact(t *testing.T) {
 	for _, c := range []struct{ in, gone string }{
 		{"GITHUB_TOKEN=ghp_abcdefghijklmnop1234 gh pr list", "ghp_abcdefghijklmnop1234"},
