@@ -163,6 +163,26 @@ func TestArchiveFloodWait(t *testing.T) {
 	}
 }
 
+// watching runs c.Watch until the test ends, and waits for it to return before the test's earlier cleanups put
+// newsSettle, newsEvery and newsEveryMost back: Watch reads them, so resetting them under it is a data race.
+func watching(t *testing.T, c *Conn, ctx context.Context, changed func(connector.Scope)) {
+	t.Helper()
+	wctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = c.Watch(wctx, changed)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("Watch did not return after its context was cancelled")
+		}
+	})
+}
+
 // What Telegram pushes kicks the archive and the inbox once the burst settles.
 func TestWatchKicks(t *testing.T) {
 	c, f, ctx := archiveAccount(t)
@@ -171,9 +191,7 @@ func TestWatchKicks(t *testing.T) {
 	default:
 	}
 	got := make(chan string, 8)
-	wctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go c.Watch(wctx, func(scope connector.Scope) { got <- string(scope) })
+	watching(t, c, ctx, func(scope connector.Scope) { got <- string(scope) })
 	f.mu.Lock()
 	updated := f.updated
 	f.mu.Unlock()
