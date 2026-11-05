@@ -209,14 +209,23 @@ func TestRedact(t *testing.T) {
 		{"git clone https://me:s3cretpass@example.com/r.git", "s3cretpass"},
 		{"echo 0123456789abcdef0123456789abcdef0123", "0123456789abcdef0123456789abcdef0123"},
 		{"export API_KEY='a b c'; run", "a b c"},
+		{"mysql -h db -u root -pS3cretpw app", "S3cretpw"},
+		{"mysqldump -u root -p'S3cret pw' app > a.sql", "S3cret pw"},
+		{"sshpass -p hunter22 ssh me@example.com", "hunter22"},
+		{"sshpass -phunter22 ssh me@example.com", "hunter22"},
+		{"curl -u me:s3cretpass https://example.com", "s3cretpass"},
+		{"curl -sS --user 'me:s3cretpass' https://example.com", "s3cretpass"},
+		{"curl -fsSL -ume:s3cretpass https://example.com", "s3cretpass"},
 	} {
 		got := redact(c.in)
 		if strings.Contains(got, c.gone) {
 			t.Errorf("redact(%q) = %q, still has %q", c.in, got, c.gone)
 		}
 	}
-	if got := redact("cd view && rm -f sub/*; ls"); got != "cd view && rm -f sub/*; ls" {
-		t.Errorf("an ordinary command changed: %q", got)
+	for _, ordinary := range []string{"cd view && rm -f sub/*; ls", "mkdir -p build && cp -pr a b", "mysql -p app", "docker run -u 1000:1000 img", "curl -u me https://example.com"} {
+		if got := redact(ordinary); got != ordinary {
+			t.Errorf("an ordinary command changed: %q", got)
+		}
 	}
 	long := redact(strings.Repeat("echo hi; ", 100))
 	if n := len([]rune(long)); n != commandShown+1 || !strings.HasSuffix(long, "…") {
