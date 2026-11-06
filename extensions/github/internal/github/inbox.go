@@ -36,6 +36,7 @@ var (
 	notificationPages = 10                 // pages of 50 notifications read per poll (GitHub's largest page)
 	forgetAfter       = 8 * 24 * time.Hour // things kept for the hub to settle its items, like its own inboxForget
 	contextMoves      = 8                  // newest comments / reviews in a thing's context
+	reviewPages       = 10                 // pages of a PR's reviews read (100 each)
 )
 
 type notification struct {
@@ -275,16 +276,22 @@ func classify(n notification) (kind, label string) {
 	return "", ""
 }
 
-var subjectURL = regexp.MustCompile(`/repos/([^/]+/[^/]+)/(?:issues|pulls)/(\d+)$`)
+var (
+	subjectURL = regexp.MustCompile(`/repos/([^/]+/[^/]+)/(?:issues|pulls)/(\d+)$`)
+	commitURL  = regexp.MustCompile(`/repos/[^/]+/[^/]+/commits/([0-9a-fA-F]+)$`)
+)
 
 // threadOf is the PR / issue a notification is about ("example-org/example-repo#12"), so a review request and an @
-// on the same PR are one thing; anything else is its own notification.
+// on the same PR are one thing; anything else (a Discussion, a commit) is its own notification. These are not
+// "notification:<id>": that is what CI items were before they were merged per branch, and Settle closes those.
 func threadOf(n notification) string {
 	if m := subjectURL.FindStringSubmatch(n.Subject.URL); m != nil {
 		return m[1] + "#" + m[2]
 	}
-	return "notification:" + n.ID
+	return subjectThread(n.Repository.FullName, n.ID)
 }
+
+func subjectThread(repo, id string) string { return "subject:" + repo + "@" + id }
 
 // move is a comment or a review, for the preview and the context.
 type move struct {
@@ -302,9 +309,16 @@ func isBot(u user) bool { return u.Type == "Bot" || strings.HasSuffix(u.Login, "
 func (c *Connector) describe(ctx context.Context, n notification, me string) (connector.InboxThing, error) {
 	t := connector.InboxThing{Title: n.Subject.Title, At: n.UpdatedAt}
 	m := subjectURL.FindStringSubmatch(n.Subject.URL)
-	if m == nil { // a CI run: there is nothing to read or answer, only the failure to look at
-		t.Sender, t.Preview, t.URL = "GitHub Actions", n.Subject.Title, n.Repository.HTMLURL+"/actions"
-		t.Context = fmt.Sprintf("仓库 %s 的 CI（GitHub Actions）：%s", n.Repository.FullName, n.Subject.Title)
+	if m == nil { // a Discussion (GitHub gives no URL for it), a commit, a release: only its title to show
+		t.Preview, t.URL = n.Subject.Title, n.Repository.HTMLURL
+		switch sha := commitURL.FindStringSubmatch(n.Subject.URL); {
+		case n.Subject.Type == "Discussion":
+			t.URL += "/discussions"
+		case sha != nil:
+			t.URL += "/commit/" + sha[1]
+		}
+		t.Context = fmt.Sprintf("GitHub 仓库 %s 的 %s：%s\n%s", n.Repository.FullName, n.Subject.Type, n.Subject.Title, t.URL)
+		t.Tier, t.Why = tierOf(n.Reason, user{}, nil)
 		return t, nil
 	}
 	repo, number := m[1], m[2]
@@ -350,9 +364,17 @@ func (c *Connector) describe(ctx context.Context, n notification, me string) (co
 	}
 	reviewed := false
 	if pr {
+		// Reviews come oldest first, with no count to jump to the last page by, and every reply in an inline thread
+		// is one: read on until a short page, so the newest review and my own are seen on a busy PR.
 		var rs []comment
-		if _, err := c.Get(ctx, fmt.Sprintf("/repos/%s/pulls/%s/reviews?per_page=100", repo, number), &rs); err != nil {
-			return t, err
+		for page := 1; page <= reviewPages; page++ {
+			var p []comment
+			if _, err := c.Get(ctx, fmt.Sprintf("/repos/%s/pulls/%s/reviews?per_page=100&page=%d", repo, number, page), &p); err != nil {
+				return t, err
+			}
+			if rs = append(rs, p...); len(p) < 100 {
+				break
+			}
 		}
 		for _, r := range rs {
 			verb := map[string]string{"APPROVED": "批准了", "CHANGES_REQUESTED": "要求修改", "COMMENTED": "评审了"}[r.State]

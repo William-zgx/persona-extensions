@@ -29,7 +29,7 @@ Every item carries `extra.rule_tier: action` as a fallback (`fallback` capabilit
 
 ## Network and sandbox
 
-The hub must reach Telegram data centers by IP over direct TCP. Persona's sandbox allows egress through an HTTP(S) proxy only, so this extension cannot run inside that sandbox.
+The hub must reach Telegram data centers by IP over TCP. When the hub's environment sets `HTTPS_PROXY` (or `https_proxy`) to an `http://` proxy and `NO_PROXY` does not exclude the data center, the connection goes through that proxy's HTTP CONNECT tunnel; otherwise it is direct. A hub that only reaches the internet through such a proxy can sign in this way. Persona's sandbox allows egress through its own HTTP(S) proxy only, so this extension cannot run inside that sandbox.
 
 Installations from the official `persona-extensions` market are unsandboxed by default. For `file:`, `dir:` or another market, disable the sandbox after installation on the hub's machine:
 
@@ -64,7 +64,7 @@ The CLI goes through the hub connector, not directly to Telegram. If `tg` is mis
 | `tg react <chat> <message-id> <emoji>` | Add a reaction. |
 | `tg read <chat> [--up-to message-id]` | Mark read, visible to the other participant. |
 
-Conversation ids returned by `chats` and `search` start with `u` (direct), `g` (basic group) or `c` (supergroup). Read commands also accept full conversation names. Write commands accept only ids or `@username`, and the target must have appeared in a recent `chats`/`search` result.
+Conversation ids returned by `chats` and `search` start with `u` (direct), `g` (basic group) or `c` (supergroup). Read commands also accept full conversation names. Write commands accept only ids or `@username`, and the target must have appeared in a recent `chats`/`search` result. A write takes the value exactly as written: no surrounding spaces, and `@username` in the case `chats`/`search` print it. Since one conversation can be named by its id or its `@username`, a `connector_gate` rule for one chat has to match both.
 
 Time values accept RFC 3339, dates at midnight in the user's time zone, Unix seconds, or relative intervals such as `30m`, `2h`, `3d`. Output is one JSON line on stdout by default; `--format text` produces concise human-readable output. Per-page limits are 100 conversations, 50 messages, 30 search results and 100 members.
 
@@ -107,6 +107,6 @@ From the repository root:
 go test ./extensions/telegram/...
 ```
 
-Tests use a fake Telegram client and synthetic fixtures, not a real account. [plugin_test.go](../../extensions/telegram/plugin_test.go) compares the manifest with the program's advertised capabilities, checks that both manifest names are equivalent, and runs the official SDK's `exttest` conformance checks (handshake, error codes and exiting when the hub disconnects).
+Tests use a fake Telegram client and synthetic fixtures, not a real account. [plugin_test.go](../../extensions/telegram/plugin_test.go) reads `persona-extension.json`, compares it with the program's advertised capabilities, and runs the official SDK's `exttest` conformance checks (handshake, error codes and exiting when the hub disconnects). The package carries both manifest names because [scripts/package.sh](../../scripts/package.sh) writes `persona-extension.json` and copies it to `persona-plugin.json`; the legacy name is never committed (see [Compatibility](../reference.md#compatibility)).
 
 The [serve adapter](../../extensions/telegram/internal/serve/serve.go) dispatches `connector.*` methods. `connector.secrets.*` and `connector.changed` use the official Go SDK to call the hub. See [protocol reference](../reference.md#process-protocol-and-views).

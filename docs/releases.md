@@ -20,11 +20,11 @@ Package locations use `release:<tag>/<file>` in the index. [scripts/index.py](..
 
 ## Automated releases
 
-[CI](../.github/workflows/ci.yml) runs [scripts/ci.sh](../scripts/ci.sh) for pull requests. On a push to `main`, it releases only extensions whose manifest version changed in that push, including new extensions.
+[CI](../.github/workflows/ci.yml) runs [scripts/ci.sh](../scripts/ci.sh) for pull requests. On a push to `main`, it releases the extensions whose manifest version changed since the last commit a release run finished for (or, before any, since the push's previous head), including new extensions, so versions from a run that was dropped while it waited go out with the next one.
 
 A version is released once: CI skips an existing release (and only puts it into the index when an earlier index commit was lost, #59); `scripts/release.sh` refuses to overwrite it. Do not rewrite published tags or historical commits to change documentation language.
 
-After packaging and creating releases, CI updates both indexes, signs them and commits the indexes and signatures. Its index commit message is already English. A manual workflow run takes extension ids and can release a version merged earlier but deliberately held back. A push without a usable previous ref runs checks only.
+After packaging and creating releases, CI updates both indexes, signs them and commits the indexes and signatures. Its index commit message is already English. A manual workflow run takes extension ids and can release a version merged earlier but deliberately held back. An argument that is neither an extension id (`extensions/<id>` works too) nor a git commit stops the release before anything is released. A push without a usable previous ref runs checks only.
 
 If the CI environment is unavailable, maintainers can run the checks locally and describe that limitation in the PR. Do not report checks that did not run as passing.
 

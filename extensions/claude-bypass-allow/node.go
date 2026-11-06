@@ -20,8 +20,9 @@ import (
 
 // config is the extension's settings, as the hub sends them.
 type config struct {
-	Machines   []string `json:"machines"`
-	ConfigDirs []string `json:"config_dirs"`
+	Machines         []string `json:"machines"`
+	ConfigDirs       []string `json:"config_dirs"`
+	AllowDestructive bool     `json:"allow_destructive"`
 }
 
 func (c config) dirs() []string {
@@ -37,6 +38,11 @@ type node struct {
 
 	mu   sync.Mutex
 	dirs []dirState
+
+	// beatWG is the heartbeat ticker goroutine. cleanup joins it before it removes the heartbeat, so a beat
+	// already due cannot land during cleanup and recreate the file (a fresh heartbeat with the entry still in
+	// would keep answering allow after this program exited).
+	beatWG sync.WaitGroup
 }
 
 // dirState is one config directory: where its settings are, and whether the entry is in.
@@ -96,11 +102,20 @@ func (n *node) init(ctx context.Context, in *ext.Init, _ *ext.Hub) (map[string]a
 		}
 		n.bin = bin
 	}
+	opts, err := json.Marshal(options{AllowDestructive: c.AllowDestructive})
+	if err != nil {
+		return nil, err
+	}
+	if err := writeFileAtomic(filepath.Join(n.data, optionsFile), opts); err != nil {
+		return nil, err // the hook must not read an old setting
+	}
 	n.beat()
 	n.mu.Lock()
 	n.install(c.dirs())
 	n.mu.Unlock()
+	n.beatWG.Add(1)
 	go func() {
+		defer n.beatWG.Done()
 		t := time.NewTicker(heartbeatEvery)
 		defer t.Stop()
 		for {
@@ -162,10 +177,13 @@ func (n *node) check() []dirState {
 	return out
 }
 
-// cleanup takes the entries out and stops the heartbeat; the program is about to exit.
+// cleanup takes the entries out and stops the heartbeat; the program is about to exit. ext.Main has returned by
+// then, so the run context is cancelled: join the ticker goroutine (under the node lock, which a beat never
+// takes) before removing the heartbeat, and no beat can afterwards resurrect it.
 func (n *node) cleanup() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.beatWG.Wait()
 	if n.data != "" {
 		_ = os.Remove(filepath.Join(n.data, heartbeatFile))
 	}
@@ -198,4 +216,13 @@ func expand(d string) (string, error) {
 func isDir(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
+}
+
+// writeFileAtomic replaces path with b (mode 0600) so that a reader sees the old file or the new one.
+func writeFileAtomic(path string, b []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

@@ -14,7 +14,7 @@ Switching the extension on turns on what the hub already did before (the connect
 ## The connector
 
 - **Inbox.** It polls GitHub's notifications at the pace GitHub asks for (`X-Poll-Interval`, at least a minute) and keeps one item per PR or issue. Each poll reads up to 10 pages of 50 notifications (only the first while the hour's requests run low). An item is marked read elsewhere only after a poll that read every unread notification. Kinds:
-  - `review_requested`, `mention`, `team_mention`, `assign`;
+  - `review_requested`, `mention`, `team_mention`, `assign`; an @ or assignment in a Discussion or on a commit is its own item, linked to the repository's discussions or the commit;
   - `author`: new comments or reviews on your own PR or issue;
   - `ci_failed`: a failing GitHub Actions run of yours, followed up until the branch is green, merged or deleted.
 
@@ -25,7 +25,7 @@ Switching the extension on turns on what the hub already did before (the connect
   - The `inbox` settings name the repositories (only these, or all but these; `owner/*` stands for an owner's every repository) and the kinds that never come in.
 
   A notification they leave out is passed over before anything about it is read: it makes no inbox item, so nothing is pushed for it. A change applies to what comes after it (the hub restarts the extension, which reads the notifications again). Items already in the inbox are neither removed nor changed, and the extension no longer updates them. The page and the assistant's tools still read every repository.
-- **Knowledge base.** PRs and issues you are involved in (`involves:@me`) are archived with their comments and reviews as conversations `github-<owner>-<repo>-<number>`. The first run looks back 30 days.
+- **Knowledge base.** PRs and issues you are involved in (`involves:@me`) are archived with their comments and reviews as conversations `github-<owner>-<repo>-<number>`. Each list is read page by page (up to 1,000 comments, reviews and inline comments per thread), so a busy thread is kept whole. The first run looks back 30 days.
 - **Assistant tools.** These read without asking: `github_search`, `github_read`, `github_diff`, `github_checks`. `github_comment` and `github_review` are writes. They go through the hub's gate and are confirmed on the phone by default. Replying from an inbox item is the user's own send.
 - **Thread page.** An inbox item opens as the PR's or issue's page in the app: comments, reviews, line comments with their diff, timeline events and failed checks with the end of their logs.
 - **Sign-in.** Choose one of the two under Settings → Connectors → GitHub:
@@ -52,7 +52,7 @@ Every row opens something: a PR or issue opens its page, a repository opens the 
 **A PR** has four tabs:
 
 - 概览: state, author, branches (with the fork), files, additions, deletions, commits, whether it can be merged and why not, labels, assignees and milestone. When checks fail, the failed ones come first with the error lines of the first failed Actions log and a button to run the failed jobs again. Then the description, each reviewer's latest review and the requested reviewers and teams, the checks' counts, the whole conversation (comments, reviews with their verdict, comments on lines opening the file, commits pushed and timeline events; the latest 30, earlier ones on 更早的), and the buttons to comment, review and merge.
-- 改动: the changed files (100 a page, up to GitHub's 3,000), each with its status, additions, deletions and comment count. A file opens its diff: a section per hunk, each line with its number (the new file's; a removed line the old file's), and every conversation on a line right under that line, with its replies, whether it is resolved (GraphQL) and a reply button. Conversations on lines the PR no longer has come at the end with the code they were on. 600 lines a page.
+- 改动: the changed files (100 a page; the page holds 280, the rest are on GitHub), each with its status, additions, deletions and comment count. A file opens its diff: a section per hunk, each line with its number (the new file's; a removed line the old file's), and every conversation on a line right under that line, with its replies, whether it is resolved (GraphQL) and a reply button. Conversations on lines the PR no longer has come at the end with the code they were on. 600 lines a page.
 - 提交: its commits (GitHub lists up to 250).
 - CI: the head commit's check runs and commit statuses, failed first; the tab's title counts the failed ones. A check run opens with its annotations, its steps that did not pass, the error lines picked from its log and the log up to its last error. A log can take a minute to come from GitHub's storage: the page waits a few seconds, then shows that it is reading and draws again when the log has come.
 
@@ -62,7 +62,7 @@ Every row opens something: a PR or issue opens its page, a repository opens the 
 
 **Reading.** A page the hub would wait too long for (a big PR's first read: its comments, reviews, events, checks and commits) answers after 12 seconds with a loading page, goes on reading in the background and has the app draw it again when done (`ui.invalidate`; `refresh_after` for apps and hubs without it). The hub gives `ui.render` 20 seconds. Every list is read with `If-None-Match`, so what has not changed costs nothing of the hour's requests. The five tabs are cached for a minute; the refresh button reads again. When the hour's rate limit is nearly used up, the tabs show what they read before and keep the remaining requests for the inbox.
 
-**Rendering.** Apps of UI version 4 and later (nwverse/persona#2951, #3136) get the code-hosting components: 改动 is a split view with the file tree beside one diff component per file (line numbers on both sides, unified or side by side, syntax highlighting, conversations at their lines), and a file in the repository is a code component. The first 10 files (or 3,000 lines) come with their lines; the app loads the rest as it scrolls to them. UI version 5 adds:
+**Rendering.** Apps of UI version 4 and later (nwverse/persona#2951, #3136) get the code-hosting components: 改动 is a split view with the file tree beside one diff component per file (line numbers on both sides, unified or side by side, syntax highlighting, conversations at their lines), and a file in the repository is a code component, up to 190,000 characters (a longer single line is cut; the rest is on GitHub). The first 10 files (or 3,000 lines) come with their lines; the app loads the rest as it scrolls to them. UI version 5 adds:
 
 - Hidden lines between hunks, 20 at a time or all: the file is read at the PR's head (in the fork when the head is one) and handed to the app once.
 - Viewed: GitHub's own Viewed mark, read and set through GraphQL, so it is the same on github.com.

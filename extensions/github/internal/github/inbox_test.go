@@ -22,11 +22,12 @@ import (
 type fakeNotifications struct {
 	mu            sync.Mutex
 	notifications string
-	prs           map[string]string // path -> JSON
-	comments      map[string]string // path -> JSON
-	notModified   bool              // answer 304 when If-Modified-Since comes
-	failPage      int               // answer this page of the notifications with a 502
-	rateLeft      string            // X-RateLimit-Remaining of 5000 (default 4000)
+	prs           map[string]string   // path -> JSON
+	comments      map[string]string   // path -> JSON
+	reviews       map[string][]string // path -> one JSON object per review, served by per_page / page
+	notModified   bool                // answer 304 when If-Modified-Since comes
+	failPage      int                 // answer this page of the notifications with a 502
+	rateLeft      string              // X-RateLimit-Remaining of 5000 (default 4000)
 	sinceSeen     []string
 	requests      []string
 	posted        []string
@@ -80,6 +81,16 @@ func (f *fakeNotifications) server(t *testing.T) *Connector {
 			_, _ = w.Write([]byte(`{}`))
 		case f.prs[r.URL.Path] != "":
 			_, _ = w.Write([]byte(f.prs[r.URL.Path]))
+		case f.reviews[r.URL.Path] != nil:
+			all := f.reviews[r.URL.Path]
+			per, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+			if per <= 0 || per > 100 {
+				per = 30
+			}
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			page = max(1, page)
+			from, to := min((page-1)*per, len(all)), min(page*per, len(all))
+			_, _ = w.Write([]byte("[" + strings.Join(all[from:to], ",") + "]"))
 		case f.comments[r.URL.Path] != "":
 			_, _ = w.Write([]byte(f.comments[r.URL.Path]))
 		case strings.HasSuffix(r.URL.Path, "/comments") || strings.HasSuffix(r.URL.Path, "/reviews"):
@@ -212,6 +223,40 @@ func TestReviewRequestWithdrawnOrMerged(t *testing.T) {
 	}
 }
 
+// A busy PR has more than a page of reviews (each inline-thread reply is an empty COMMENTED one); the newest
+// is on the last page, and is the one that counts.
+func TestReviewsPastTheFirstPage(t *testing.T) {
+	var rs []string
+	for i := range 120 {
+		rs = append(rs, fmt.Sprintf(`{"user":{"login":"bob"},"state":"COMMENTED","body":"","submitted_at":"2026-11-01T%02d:%02d:00Z"}`, i/60, i%60))
+	}
+	f := &fakeNotifications{prs: map[string]string{
+		api12: strings.Replace(openPR(""), `"login":"alice"`, `"login":"me"`, 1),
+		"/repos/example-org/example-repo/issues/12": `{"comments":0}`,
+	}, comments: map[string]string{}, reviews: map[string][]string{
+		api12 + "/reviews": append(rs, `{"user":{"login":"carol"},"state":"CHANGES_REQUESTED","body":"Please split this change","submitted_at":"2026-11-02T08:59:00Z"}`),
+	}}
+	f.notifications = "[" + note("1", "author", "PullRequest", "https://api.github.com"+api12, t1) + "]"
+	c := f.server(t)
+	if _, _, err := c.poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if th := things(t, c)["example-org/example-repo#12"]; th.Tier != connector.TierAction || th.Sender != "carol" ||
+		th.Preview != "要求修改 Please split this change" {
+		t.Errorf("author: tier %q why %q sender %q preview %q", th.Tier, th.Why, th.Sender, th.Preview)
+	}
+
+	// My own review past the first page answers a review request.
+	f.prs[api12] = openPR("")
+	f.reviews[api12+"/reviews"] = append(rs, `{"user":{"login":"me"},"state":"APPROVED","body":"","submitted_at":"2026-11-02T08:59:00Z"}`)
+	f.notifications = "[" + note("1", "review_requested", "PullRequest", "https://api.github.com"+api12, t2) + "]"
+	c.inbox.fullAt = time.Time{}
+	c.poll(context.Background())
+	if th := things(t, c)["example-org/example-repo#12"]; th.Done != connector.DoneReplied {
+		t.Errorf("reviewed: %+v", th)
+	}
+}
+
 // With requests running low only the notifications are read.
 func TestFewRequestsLeftReadsNoThreads(t *testing.T) {
 	f := &fakeNotifications{prs: map[string]string{api12: openPR(`{"login":"me"}`)}, comments: map[string]string{}}
@@ -340,5 +385,39 @@ func TestReplyComments(t *testing.T) {
 		if err := c.Reply(context.Background(), connector.InboxReply{Thread: bad, Text: "x"}); err == nil {
 			t.Errorf("%s was replied to", bad)
 		}
+	}
+}
+
+// An @ in a Discussion (GitHub sends no subject URL) or on a commit is a person's, not a CI run: it links to the
+// discussions or the commit, and settling does not close it as an old per-notification CI item.
+func TestDiscussionAndCommitMentionsAreNotCI(t *testing.T) {
+	f := &fakeNotifications{}
+	f.notifications = "[" + strings.Join([]string{
+		note("77", "mention", "Discussion", "", t1),
+		note("78", "mention", "Commit", "https://api.github.com/repos/example-org/example-repo/commits/abc123", t1),
+	}, ",") + "]"
+	c := f.server(t)
+	if _, _, err := c.poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := c.Collect(context.Background())
+	if len(list) != 2 {
+		t.Fatalf("%d things: %+v", len(list), list)
+	}
+	want := map[string][2]string{ // title -> thread, URL
+		"Subject 77": {"subject:example-org/example-repo@77", "https://github.com/example-org/example-repo/discussions"},
+		"Subject 78": {"subject:example-org/example-repo@78", "https://github.com/example-org/example-repo/commit/abc123"},
+	}
+	var threads []string
+	for _, th := range list {
+		w := want[th.Title]
+		if th.Thread != w[0] || th.URL != w[1] || th.Kind != "mention" || th.Sender == "GitHub Actions" ||
+			strings.Contains(th.Context, "CI") || th.Tier != "action" || th.CanReply {
+			t.Errorf("%s: thread %q url %q sender %q tier %q context %q", th.Title, th.Thread, th.URL, th.Sender, th.Tier, th.Context)
+		}
+		threads = append(threads, th.Thread)
+	}
+	if over := c.Settle(context.Background(), threads); len(over) != 0 {
+		t.Errorf("settled %v", over)
 	}
 }

@@ -1,15 +1,15 @@
 {
   "market_version": 1,
-  "name": "nwverse 扩展",
-  "description": "nwverse 维护、以后可以公开的 Persona 扩展。",
+  "name": "官方扩展",
+  "description": "Persona 官方维护的扩展。",
   "plugins": [
     {
       "manifest": {
         "manifest_version": 1,
         "id": "claude-bypass-allow",
         "name": "Bypass 自动允许",
-        "version": "0.1.1",
-        "description": "Claude Code 开着 bypassPermissions（--dangerously-skip-permissions）时，有些 Bash 命令（如 cd 之后 rm 一个 glob、rm 的目标是变量）仍会弹确认框，无人值守的 Agent 就卡在「在等你」。在你选的电脑上给 Claude Code 装一个 PermissionRequest hook：只在会话是 bypass 模式、工具是 Bash 时自动允许，不覆盖你自己配的 ask / deny 规则，每次自动允许都记一条（命令截断、去掉密钥）。别的模式照常问你。",
+        "version": "0.2.16",
+        "description": "Claude Code 开着 bypassPermissions（--dangerously-skip-permissions）时，有些调用仍会弹确认框（如读工作目录外的文件、开子 Agent、某些 Bash），无人值守的 Agent 就卡在「在等你」。在你选的电脑上给 Claude Code 装一个 PermissionRequest hook：只在会话是 bypass 模式时，自动允许 Bash、只读工具（Read、Glob、Grep、LS、NotebookRead）和子 Agent。删除、覆盖数据的 Bash 命令，目标都在临时目录或工作目录里（/tmp、会话的工作目录、~/ag-work、~/wt、Claude Code 的 worktree 等）时直接放行，其余的仍然问你；打开「删除和覆盖也自动允许」就都放行。force push、改权限的 Bash 命令，写文件、Workflow 和 MCP 工具，以及你自己配的 ask / deny 规则，始终问你。每次自动允许都记一条（命令截断、去掉密钥）。别的模式照常问你。",
         "publisher": "nwverse",
         "homepage": "https://github.com/nwverse/persona-extensions/tree/main/extensions/claude-bypass-allow",
         "engines": {
@@ -66,7 +66,13 @@
                   "linux"
                 ]
               },
-              "x-confirm": "这台电脑上 bypass 模式的 Claude Code 会话，Bash 的安全确认（如危险的 rm）将不再问你、直接执行。每次都会记录。"
+              "x-confirm": "这台电脑上 bypass 模式的 Claude Code 会话，Bash、读文件（包括工作目录外的）和开子 Agent 的确认将不再问你、直接执行。删除、覆盖临时目录和工作目录里的东西也直接执行；别处的删除、覆盖，以及 force push、改权限仍然问你。每次都会记录。"
+            },
+            "allow_destructive": {
+              "type": "boolean",
+              "title": "删除和覆盖也自动允许",
+              "description": "打开后，bypass 模式下删除、覆盖数据的 Bash 命令（rm、mv、git reset --hard、写进文件的 > 等）不管目标在哪都直接放行，包括家目录和工作目录以外的，删掉的可能找不回来。force push、改权限、格式化磁盘，以及你自己配的 ask / deny 规则仍然问你。关着时，只有目标都在临时目录、工作目录里的才放行。",
+              "default": false
             },
             "config_dirs": {
               "type": "array",
@@ -92,9 +98,9 @@
       ],
       "packages": [
         {
-          "url": "release:claude-bypass-allow-v0.1.1/claude-bypass-allow-0.1.1.tar.gz",
-          "sha256": "c4e8d5d056111cfd1a1046942513a795aaea7b7c112932334d9b3d11890d9e9c",
-          "size": 11607747
+          "url": "release:claude-bypass-allow-v0.2.16/claude-bypass-allow-0.2.16.tar.gz",
+          "sha256": "ee6705228aa88d4aee2f026a8ca81f5560cd6bcfff217f2c3e28b30b98383fb7",
+          "size": 12168117
         }
       ]
     },
@@ -103,7 +109,7 @@
         "manifest_version": 1,
         "id": "github",
         "name": "GitHub",
-        "version": "0.4.0",
+        "version": "0.4.15",
         "description": "GitHub 进 Persona：收件箱里是请你 review、@ 你、指派给你、你的 PR / issue 有了新评论或 review、CI 失败；和你有关的 PR、issue 归档进知识库；助手能搜、读 PR / issue、看改动和 CI，评论和 review 先在手机上确认。登录用你某台电脑上的 gh 登录或设备码登录，token 加密存在 hub 的数据库里。侧边栏的「GitHub」页：待你 review 的 PR、你的 PR 和 CI、指派 / 提到你的、通知和关注的动态、你的仓库（浏览代码、分支、README），PR 的改动文件、逐文件 diff 和行内评论、全部评论、CI 日志摘要，在这一页上评论、review、合并（先预览、确认后才发）。",
         "publisher": "nwverse",
         "homepage": "https://github.com/nwverse/persona-extensions/tree/main/extensions/github",
@@ -274,9 +280,228 @@
       ],
       "packages": [
         {
-          "url": "release:github-v0.4.0/github-0.4.0.tar.gz",
-          "sha256": "6afbd41368a95db81732911c7245dfadf21806294ebb211d8f79dfd993bc9997",
-          "size": 13526841
+          "url": "release:github-v0.4.15/github-0.4.15.tar.gz",
+          "sha256": "b7fb9480c8609718de6e0fc169278609e9f1ffad5eac1e151fef9c40f097a3c4",
+          "size": 13549090
+        }
+      ]
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "id": "homeassistant",
+        "name": "Home Assistant",
+        "version": "0.2.1",
+        "description": "接你自己的 Home Assistant：主导航上多一个「家」：总览直接写出每个房间开着什么，房间里按设备列（设备的配置开关收在设备里），灯和开关点一下就开关，点开设备调亮度、空调温度和模式、开关窗帘，看最近 24 小时的变化；「动态」看最近两小时家里的变化，「自动化」运行脚本和场景、启停和触发自动化；助手能查家里的状态、历史、全屋日志、长期统计和能耗，看摄像头画面，列出和运行自动化、脚本，按房间批量操作（跳过设备的配置开关），在音箱上播报，也能新建和修改自动化（每次都在手机上确认，门锁、警戒、改自动化和播报永远要确认）；提醒规则在门开、漏水、设备离线、湿度超标时主动推送到手机或叫助手。用长期访问令牌连 Home Assistant 的 REST 和 WebSocket API。",
+        "publisher": "nwverse",
+        "engines": {
+          "plugin_protocol": 1
+        },
+        "runtime": {
+          "command": {
+            "linux-amd64": "bin/homeassistant-linux-amd64",
+            "linux-arm64": "bin/homeassistant-linux-arm64",
+            "darwin-arm64": "bin/homeassistant-darwin-arm64",
+            "darwin-amd64": "bin/homeassistant-darwin-amd64"
+          }
+        },
+        "contributes": {
+          "connectors": [
+            {
+              "id": "homeassistant",
+              "name": "Home Assistant",
+              "capabilities": [
+                "status",
+                "tools",
+                "actions"
+              ],
+              "confirm_always": [
+                "homeassistant_secure_call",
+                "homeassistant_automation_edit",
+                "homeassistant_say"
+              ]
+            }
+          ],
+          "ui": [
+            {
+              "id": "home",
+              "title": "家",
+              "placement": "nav_page",
+              "icon": "gauge"
+            }
+          ]
+        },
+        "configuration": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "title": "Home Assistant 地址",
+              "description": "hub 这台机器能访问到的地址，如 http://homeassistant.local:8123 或 http://<局域网地址>:8123",
+              "format": "uri"
+            },
+            "insecure_tls": {
+              "type": "boolean",
+              "title": "不校验证书",
+              "description": "地址是 https、用的是自签名证书时打开",
+              "default": false
+            },
+            "writable_domains": {
+              "type": "array",
+              "title": "可操作的类型",
+              "description": "能被操作的实体类型（domain）。不填就是常见的设备：灯、开关、风扇、窗帘、空调、播放器、扫地机、场景、脚本、门锁、警戒等；homeassistant、shell_command 这类整机和命令的永远不在里面，除非你写上",
+              "items": {
+                "type": "string"
+              }
+            },
+            "hidden_areas": {
+              "type": "array",
+              "title": "不显示的区域",
+              "description": "区域的名字或 id：页面和助手都看不到这些区域里的东西",
+              "items": {
+                "type": "string"
+              }
+            },
+            "watches": {
+              "type": "array",
+              "title": "提醒规则",
+              "description": "每行一条：看谁 条件 [for=持续多久] [do=notify|assistant|both] [level=time-sensitive] [cooldown=30m] [name=名字] [message=附言]。看谁是实体 id（可以带 *）或「类型@区域」，条件是 =状态、>数、<数 或 offline。如 binary_sensor.front_door =on for=1m；sensor.bathroom_humidity >75 for=10m do=assistant message=开排风扇；binary_sensor@厨房 class=moisture =on level=time-sensitive；switch.* offline",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "maxLength": 400
+              }
+            }
+          }
+        },
+        "secrets": [
+          {
+            "name": "token",
+            "title": "长期访问令牌",
+            "description": "在 Home Assistant 的「个人资料 › 安全 › 长期访问令牌」里新建；用管理员账号建才能按区域显示",
+            "required": true
+          }
+        ],
+        "permissions": {
+          "network": [],
+          "hub": [
+            "notify",
+            "assistant.ask"
+          ]
+        }
+      },
+      "tags": [
+        "智能家居",
+        "Home Assistant",
+        "设备"
+      ],
+      "packages": [
+        {
+          "url": "release:homeassistant-v0.2.1/homeassistant-0.2.1.tar.gz",
+          "sha256": "310042451e65c6d946c4b6c1da0929220ba19dd579a9e394125d503e5c3b57ac",
+          "size": 14119385
+        }
+      ]
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "id": "larkagentx",
+        "name": "Feishu (LarkAgentX adapter)",
+        "version": "0.1.5",
+        "description": "独立的飞书个人账号适配器：用户自行在伴随机器上安装 LarkAgentX，hub 使用 Go 程序经 SSH 接入。只收双白名单内的文本消息，发送全文始终需要确认；不启动 Agent、不发已读回执，不替换 OpenLark。非官方协议，真实账号联调尚未验证。",
+        "publisher": "nwverse",
+        "homepage": "https://github.com/nwverse/persona-extensions/tree/main/extensions/larkagentx",
+        "engines": {
+          "persona": ">=202611041602",
+          "plugin_protocol": 1
+        },
+        "runtime": {
+          "command": {
+            "linux-amd64": "bin/larkagentx-linux-amd64",
+            "linux-arm64": "bin/larkagentx-linux-arm64",
+            "darwin-arm64": "bin/larkagentx-darwin-arm64",
+            "darwin-amd64": "bin/larkagentx-darwin-amd64"
+          }
+        },
+        "contributes": {
+          "connectors": [
+            {
+              "id": "larkagentx",
+              "name": "Feishu (LarkAgentX adapter)",
+              "capabilities": [
+                "status",
+                "login",
+                "inbox",
+                "events",
+                "actions"
+              ],
+              "confirm_always": [
+                "larkagentx_send_text"
+              ],
+              "kinds": [
+                "message"
+              ],
+              "kind_descriptions": {
+                "message": "授权会话中授权发送者发来的飞书文本消息"
+              }
+            }
+          ]
+        },
+        "configuration": {
+          "type": "object",
+          "properties": {
+            "login_method": {
+              "type": "string",
+              "title": "登录方式",
+              "enum": [
+                "qr",
+                "import"
+              ],
+              "default": "qr",
+              "description": "qr 在 App 中扫码；import 通过隐藏字段导入上游登录态 JSON。"
+            },
+            "triage_rules": {
+              "type": "string",
+              "title": "分拣规则",
+              "maxLength": 4000,
+              "description": "飞书适配器的条目按什么分「需要你 / 知悉即可 / 噪音」；只对本扩展生效。写 \\n 换行；空着用全局规则。"
+            },
+            "bridge_command": {
+              "type": "string",
+              "title": "伴随机器命令（JSON 数组）",
+              "maxLength": 8192,
+              "description": "用户信任的 SSH 命令 argv；不经过本地 shell，不在参数中放凭证。见扩展文档。hub 不需要 Python。"
+            },
+            "allowed_chats": {
+              "type": "string",
+              "title": "授权会话 ID",
+              "maxLength": 32768,
+              "description": "逗号或换行分隔的精确 ID；不支持通配符，空白则禁止。发送也受此名单限制。"
+            },
+            "allowed_senders": {
+              "type": "string",
+              "title": "授权发送者 ID",
+              "maxLength": 32768,
+              "description": "逗号或换行分隔的精确 ID；收消息必须同时满足会话和发送者白名单，不接收自身回显。"
+            }
+          }
+        }
+      },
+      "tags": [
+        "feishu",
+        "lark",
+        "connector",
+        "experimental"
+      ],
+      "packages": [
+        {
+          "url": "release:larkagentx-v0.1.5/larkagentx-0.1.5.tar.gz",
+          "sha256": "75051b14d7e77017982d7e189ddd005fabbbe2f7ec47e506857b89cef93bf638",
+          "size": 11957961
         }
       ]
     },
@@ -285,7 +510,7 @@
         "manifest_version": 1,
         "id": "linuxdo",
         "name": "LINUX DO",
-        "version": "0.1.1",
+        "version": "0.1.10",
         "description": "LINUX DO 社区的热门帖子：扩展里的一页按你的兴趣看热门、今日 / 本周最热和最新，点开在 App 里读正文和热门回复（hub 去读，手机不用代理）；助手能用工具查热门、读帖子。只读公开内容，不用账号。",
         "publisher": "nwverse",
         "engines": {
@@ -411,9 +636,223 @@
       ],
       "packages": [
         {
-          "url": "release:linuxdo-v0.1.1/linuxdo-0.1.1.tar.gz",
-          "sha256": "858ed2154b89c1fec152c40c9c0615f1eb657b8d0ef5cfb67495918c3cb05a5d",
-          "size": 11895357
+          "url": "release:linuxdo-v0.1.10/linuxdo-0.1.10.tar.gz",
+          "sha256": "b9052c9fb1d09e4e5042d095585d4ed91619d4c4a4db243d9c8b64e88e82510c",
+          "size": 12128402
+        }
+      ]
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "id": "markets",
+        "name": "行情",
+        "version": "0.6.2",
+        "description": "行情（加密货币来自 OKX 公开行情接口，A 股、港股、美股来自腾讯行情的网页接口，都不用账号）：主导航上多一个「行情」，搜币、搜股票，看自选的价格和涨跌，点开看 K 线走势和成交量；可以给代码设价格提醒，到了进收件箱；助手能用工具搜代码、查报价和 K 线。hub 去读，手机不用代理。",
+        "publisher": "nwverse",
+        "engines": {
+          "plugin_protocol": 1
+        },
+        "runtime": {
+          "command": {
+            "linux-amd64": "bin/markets-linux-amd64",
+            "linux-arm64": "bin/markets-linux-arm64",
+            "darwin-arm64": "bin/markets-darwin-arm64",
+            "darwin-amd64": "bin/markets-darwin-amd64"
+          }
+        },
+        "contributes": {
+          "connectors": [
+            {
+              "id": "markets",
+              "name": "行情",
+              "capabilities": [
+                "status",
+                "tools",
+                "inbox",
+                "fallback"
+              ],
+              "hosts": [
+                "www.okx.com",
+                "qt.gtimg.cn",
+                "smartbox.gtimg.cn",
+                "web.ifzq.gtimg.cn",
+                "ifzq.gtimg.cn"
+              ],
+              "kinds": [
+                "price_alert"
+              ],
+              "kind_descriptions": {
+                "price_alert": "用户自己在「行情」里设的价格提醒到了（涨到、跌到某个价，或涨跌幅超过设的百分比），需要用户"
+              }
+            }
+          ],
+          "ui": [
+            {
+              "id": "watchlist",
+              "title": "行情",
+              "placement": "nav_page",
+              "icon": "chart"
+            },
+            {
+              "id": "card",
+              "title": "行情",
+              "placement": "overview_card",
+              "opens": "watchlist"
+            }
+          ]
+        },
+        "configuration": {
+          "type": "object",
+          "properties": {
+            "triage_rules": {
+              "type": "string",
+              "title": "分拣规则",
+              "maxLength": 4000,
+              "description": "行情提醒的条目按什么分「需要你 / 知悉即可 / 噪音」，用你自己的话写；填了就只用它、不用收件箱的全局规则（只管行情提醒）。一般不在这里改：和助手说（比如「比特币的提醒知悉即可」），它来改。写 \\n 换行；空着用全局规则"
+            },
+            "watchlist": {
+              "type": "array",
+              "title": "初始自选",
+              "description": "第一次打开时的自选。OKX 的交易对直接写，如 BTC-USDT、BTC-USDT-SWAP，只写币名（BTC）当成对 USDT；股票在代码前写市场，如 cn:600519、hk:00700、us:AAPL。之后在「行情」页里加减",
+              "items": {
+                "type": "string"
+              }
+            },
+            "bar": {
+              "type": "string",
+              "title": "K 线默认周期",
+              "description": "来源没有这个周期时用它最接近 1 小时的",
+              "default": "1H",
+              "oneOf": [
+                {
+                  "const": "T",
+                  "title": "今日分时（股票）"
+                },
+                {
+                  "const": "15m",
+                  "title": "15 分钟"
+                },
+                {
+                  "const": "1H",
+                  "title": "1 小时"
+                },
+                {
+                  "const": "4H",
+                  "title": "4 小时"
+                },
+                {
+                  "const": "1D",
+                  "title": "1 天"
+                },
+                {
+                  "const": "1W",
+                  "title": "1 周"
+                }
+              ]
+            },
+            "overview_card": {
+              "type": "boolean",
+              "title": "总览卡片",
+              "description": "在总览上放一张行情卡片：BTC、上证指数、恒生指数、纳斯达克，和自选里涨跌最多的几个，点开进「行情」。关掉就不显示",
+              "default": true
+            },
+            "colors": {
+              "type": "string",
+              "title": "涨跌颜色",
+              "default": "red_up",
+              "oneOf": [
+                {
+                  "const": "red_up",
+                  "title": "红涨绿跌"
+                },
+                {
+                  "const": "green_up",
+                  "title": "绿涨红跌"
+                }
+              ]
+            },
+            "tz": {
+              "type": "string",
+              "title": "时区",
+              "description": "K 线横轴的时间用这个时区（如 Asia/Shanghai）；空着用 App 的"
+            }
+          }
+        },
+        "permissions": {
+          "network": [
+            "www.okx.com",
+            "qt.gtimg.cn",
+            "smartbox.gtimg.cn",
+            "web.ifzq.gtimg.cn",
+            "ifzq.gtimg.cn"
+          ]
+        }
+      },
+      "tags": [
+        "行情",
+        "加密货币",
+        "OKX",
+        "A股",
+        "港股",
+        "美股"
+      ],
+      "packages": [
+        {
+          "url": "release:markets-v0.6.2/markets-0.6.2.tar.gz",
+          "sha256": "c1e33f8cb332db34a99a88d77d938091767743e049ec430805f0cf42d3e1dc78",
+          "size": 13048745
+        }
+      ]
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "id": "mnemo",
+        "name": "mnemo 历史会话搜索",
+        "version": "0.1.0",
+        "description": "只有声明、不跑程序：跑助手的那台电脑上装了 mnemo（https://github.com/szupzj18/mnemo），Claude 助手就多一组 mcp__mnemo__* 工具，按内容搜 Claude Code、Codex 等 Agent 以前的会话，读命中处的上下文。只开只读工具，重建索引的 reindex 禁用。没装 mnemo 时什么都不加。Persona 不传凭据，也不读 mnemo 的配置。",
+        "publisher": "nwverse",
+        "homepage": "https://github.com/nwverse/persona-extensions/tree/main/extensions/mnemo",
+        "engines": {
+          "persona": ">=202611051918"
+        },
+        "contributes": {
+          "mcp_servers": [
+            {
+              "id": "mnemo",
+              "command": "mnemo",
+              "env": "PERSONA_MNEMO_BIN",
+              "args": [
+                "mcp"
+              ],
+              "requires": [
+                "mcp"
+              ],
+              "allow": [
+                "search_sessions",
+                "get_context",
+                "get_session",
+                "list_recent_sessions"
+              ],
+              "deny": [
+                "reindex"
+              ]
+            }
+          ]
+        }
+      },
+      "tags": [
+        "agents",
+        "assistant",
+        "search",
+        "mcp"
+      ],
+      "packages": [
+        {
+          "url": "release:mnemo-v0.1.0/mnemo-0.1.0.tar.gz",
+          "sha256": "d6555f50a82f84b970e8a84c531be518cdb7b81e70dc9e248fb6f2049e27b016",
+          "size": 840
         }
       ]
     },
@@ -422,7 +861,7 @@
         "manifest_version": 1,
         "id": "showcase",
         "name": "组件展示",
-        "version": "0.1.0",
+        "version": "0.1.2",
         "description": "扩展界面的每一种组件、每一种状态各一页：文字、数字、进度、行、按钮、链接、输入、图表、Markdown、表格、空状态、加载中；列表的搜索 / 筛选 / 加载更多，列表 → 详情 → 编辑 → 返回，invalidate；外加一张总览卡片、一个小组件和两个快捷指令。给写扩展的人看效果，也给各端做截图对齐。纯本地数据，不出网、不要密钥。",
         "publisher": "nwverse",
         "engines": {
@@ -523,9 +962,9 @@
       ],
       "packages": [
         {
-          "url": "release:showcase-v0.1.0/showcase-0.1.0.tar.gz",
-          "sha256": "5a2635aeb2ab9da24dbf7c3448efd01fbb2f4f5957ff2a725fe39f7b184ce386",
-          "size": 11050745
+          "url": "release:showcase-v0.1.2/showcase-0.1.2.tar.gz",
+          "sha256": "bfb6c93fa69f5c5f7b20deeb9f28aee3daa67a32d8ccd4a82f8baa8462da22b2",
+          "size": 11660520
         }
       ]
     },
@@ -651,8 +1090,8 @@
         "manifest_version": 1,
         "id": "telegram",
         "name": "Telegram",
-        "version": "0.1.3",
-        "description": "用你自己的 Telegram 账号（MTProto，hub 直连 Telegram 的数据中心）：App 里的 Telegram 会话，收件箱（私聊、@我），知识库归档，助手的 Telegram 工具和 tg 命令行。发消息、回复、转发、点 reaction、标为已读都先在手机上确认。登录（api_id、api_hash 和会话）加密存在 hub 的数据库里，不在扩展目录。",
+        "version": "0.1.20",
+        "description": "用你自己的 Telegram 账号（MTProto，hub 连 Telegram 的数据中心；hub 的环境设了 HTTPS_PROXY 时经它的 HTTP CONNECT 隧道）：App 里的 Telegram 会话，收件箱（私聊、@我），知识库归档，助手的 Telegram 工具和 tg 命令行。发消息、回复、转发、点 reaction、标为已读都先在手机上确认。登录（api_id、api_hash 和会话）加密存在 hub 的数据库里，不在扩展目录。",
         "publisher": "nwverse",
         "engines": {
           "persona": ">=202611041602",
@@ -740,9 +1179,131 @@
       ],
       "packages": [
         {
-          "url": "release:telegram-v0.1.3/telegram-0.1.3.tar.gz",
-          "sha256": "96d121fdc58f13a2bcbcdaea8c5f9f57cbf914b6e9be7054553bcedee76d3454",
-          "size": 21929958
+          "url": "release:telegram-v0.1.20/telegram-0.1.20.tar.gz",
+          "sha256": "b6beb83ffe0a57157c547f8c14998c41caf35f1c7d898114be52ae63ba9d52d8",
+          "size": 22267945
+        }
+      ]
+    },
+    {
+      "manifest": {
+        "manifest_version": 1,
+        "id": "v2ex",
+        "name": "V2EX",
+        "version": "0.1.0",
+        "description": "V2EX 社区的帖子：扩展里的一页看热门、最新和你关注的节点，点开在 App 里读正文和最新回复（hub 去读，手机不用代理）；助手能用工具查列表、读帖子。只读公开内容，不用账号。",
+        "publisher": "nwverse",
+        "engines": {
+          "plugin_protocol": 1
+        },
+        "runtime": {
+          "command": {
+            "linux-amd64": "bin/v2ex-linux-amd64",
+            "linux-arm64": "bin/v2ex-linux-arm64",
+            "darwin-arm64": "bin/v2ex-darwin-arm64",
+            "darwin-amd64": "bin/v2ex-darwin-amd64"
+          }
+        },
+        "contributes": {
+          "connectors": [
+            {
+              "id": "v2ex",
+              "name": "V2EX",
+              "capabilities": [
+                "status",
+                "tools"
+              ],
+              "hosts": [
+                "www.v2ex.com"
+              ]
+            }
+          ],
+          "ui": [
+            {
+              "id": "topics",
+              "title": "V2EX 帖子",
+              "placement": "plugin_page"
+            }
+          ]
+        },
+        "configuration": {
+          "type": "object",
+          "properties": {
+            "list": {
+              "type": "string",
+              "title": "打开时看",
+              "default": "hot",
+              "oneOf": [
+                {
+                  "const": "hot",
+                  "title": "热门"
+                },
+                {
+                  "const": "latest",
+                  "title": "最新"
+                },
+                {
+                  "const": "nodes",
+                  "title": "我的节点"
+                }
+              ]
+            },
+            "nodes": {
+              "type": "array",
+              "title": "我的节点",
+              "description": "节点的英文名，如 python、programmer（节点页面链接 /go/ 后面那段）；最多 5 个，空着就没有「我的节点」",
+              "maxItems": 5,
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclude_nodes": {
+              "type": "array",
+              "title": "不看这些节点",
+              "description": "节点的英文名或中文名，要完全一样（不分大小写）",
+              "items": {
+                "type": "string"
+              }
+            },
+            "keywords": {
+              "type": "array",
+              "title": "关键词",
+              "description": "标题或正文里有其中一个才显示（不分大小写）；空着不限",
+              "items": {
+                "type": "string"
+              }
+            },
+            "exclude_keywords": {
+              "type": "array",
+              "title": "屏蔽词",
+              "description": "标题或正文里有其中一个就不显示",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tz": {
+              "type": "string",
+              "title": "时区",
+              "description": "页面和工具里的时间用这个时区（如 Asia/Shanghai）；空着用 App 或 hub 机器的"
+            }
+          }
+        },
+        "permissions": {
+          "network": [
+            "www.v2ex.com"
+          ]
+        }
+      },
+      "tags": [
+        "社区",
+        "热门",
+        "阅读"
+      ],
+      "packages": [
+        {
+          "url": "release:v2ex-v0.1.0/v2ex-0.1.0.tar.gz",
+          "sha256": "1b9319beb04afcf65eae1fa1c65c167043cb7ae905ca4ab9cdafc402ffecc8a7",
+          "size": 12636661
         }
       ]
     }

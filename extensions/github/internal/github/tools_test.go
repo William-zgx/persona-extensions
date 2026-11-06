@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // fakeAPI is GitHub's REST API on made-up data: example-org/example-repo, alice and bob. Paths not listed are 404s.
@@ -42,9 +44,61 @@ func fakeAPI(t *testing.T) (*Connector, *[]string) {
 			{"id":102,"name":"lint","status":"in_progress","app":{"slug":"github-actions"}}]}`,
 		"/repos/example-org/example-repo/actions/jobs/101/logs": strings.Repeat("setup line\n", 2000) + "--- FAIL: TestExample\nexit status 1\n",
 	}
+	// PR 14 is busy: 101 comments and 101 reviews, listed oldest first a page at a time. Only the last review
+	// (bob's approval, the newest entry) has a verdict; the 100 before it are empty inline-thread replies.
+	routes["/repos/example-org/example-repo/issues/14"] = `{"number":14,"title":"Busy example","state":"open","user":{"login":"alice"},
+		"body":"desc","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-03T00:00:00Z","comments":101,"pull_request":{"merged_at":null}}`
+	routes["/repos/example-org/example-repo/pulls/14"] = `{"head":{"ref":"feat/busy","sha":"0123456789abcdef0123456789abcdef01234567"},"base":{"ref":"main"}}`
+	lists := map[string][]string{}
+	for i := 1; i <= 101; i++ {
+		at := fmt.Sprintf("2026-01-02T%02d:%02d:00Z", i/60, i%60)
+		lists["/repos/example-org/example-repo/issues/14/comments"] = append(lists["/repos/example-org/example-repo/issues/14/comments"],
+			fmt.Sprintf(`{"user":{"login":"bob"},"body":"comment %d","created_at":%q}`, i, at))
+		review := fmt.Sprintf(`{"user":{"login":"bob"},"state":"COMMENTED","body":"","submitted_at":"2026-01-01T%02d:%02d:00Z"}`, i/60, i%60)
+		if i == 101 {
+			review = `{"user":{"login":"bob"},"state":"APPROVED","body":"","submitted_at":"2026-01-02T23:00:00Z"}`
+		}
+		lists["/repos/example-org/example-repo/pulls/14/reviews"] = append(lists["/repos/example-org/example-repo/pulls/14/reviews"], review)
+	}
 	var seen []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.URL.RequestURI())
+		if items, ok := lists[r.URL.Path]; ok {
+			per, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			per, page = max(per, 1), max(page, 1) // GitHub's defaults are 30 and 1; every caller here sets both
+			from, to := min((page-1)*per, len(items)), min(page*per, len(items))
+			_, _ = w.Write([]byte("[" + strings.Join(items[from:to], ",") + "]"))
+			return
+		}
+		// PR 13 has 1001 changed files: ten full pages of 100 plus file #1001 alone on page 11.
+		if r.URL.Path == "/repos/example-org/example-repo/pulls/13/files" {
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			if page < 1 || page > 11 {
+				w.WriteHeader(http.StatusNotFound) // a tripwire: the loop must never page past the short last page
+				return
+			}
+			n := 100
+			if page == 11 {
+				n = 1
+			}
+			var b strings.Builder
+			b.WriteByte('[')
+			for i := 0; i < n; i++ {
+				num := (page-1)*100 + i + 1
+				if i > 0 {
+					b.WriteByte(',')
+				}
+				if num == 1001 {
+					b.WriteString(`{"filename":"src/file1001.go","status":"added","additions":1,"deletions":0,"patch":"@@ -0,0 +1 @@\n+file1001"}`)
+				} else {
+					fmt.Fprintf(&b, `{"filename":"src/file%04d.go","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1 @@\n-old\n+new"}`, num)
+				}
+			}
+			b.WriteByte(']')
+			_, _ = w.Write([]byte(b.String()))
+			return
+		}
 		body, ok := routes[r.URL.Path]
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
@@ -133,6 +187,18 @@ func TestReadAPullRequest(t *testing.T) {
 	}
 }
 
+// With 101 comments the last page holds one: the newest 15 reach back into the page before, and the reviews are
+// read past the first 100 so the latest verdict shows.
+func TestReadTheNewestAcrossAPageBoundary(t *testing.T) {
+	c, _ := fakeAPI(t)
+	out := call(t, c, "github_read", `{"repo":"example-org/example-repo","number":14}`)
+	mustContain(t, out, "--- 102 comments and reviews, newest first (the newest 15)", "bob approved",
+		"bob:\ncomment 101", "bob:\ncomment 100\n", "bob:\ncomment 88")
+	if strings.Contains(out, "comment 87") {
+		t.Errorf("more than the newest 15:\n%s", out)
+	}
+}
+
 func TestDiff(t *testing.T) {
 	c, _ := fakeAPI(t)
 	out := call(t, c, "github_diff", `{"repo":"example-org/example-repo","number":12}`)
@@ -144,6 +210,41 @@ func TestDiff(t *testing.T) {
 	if _, err := c.Call(context.Background(), "github_diff", json.RawMessage(`{"repo":"example-org/example-repo","number":12,"path":"nope"}`)); err == nil {
 		t.Error("a file the PR does not change")
 	}
+
+	// A PR with 1001 files pages past the old ten-page cap: the summary totals include file #1001.
+	big, bigSeen := fakeAPI(t)
+	out = call(t, big, "github_diff", `{"repo":"example-org/example-repo","number":13}`)
+	mustContain(t, out, "1001 files changed, +1001 −0", "added src/file1001.go +1 −0")
+	if pages := filePages(*bigSeen, 13); pages != 11 {
+		t.Errorf("the 1001-file summary fetched %d pages, want 11", pages)
+	}
+
+	// A path lookup for a file past #1000 reaches page 11 and returns its patch, not "not among the files".
+	later, laterSeen := fakeAPI(t)
+	out = call(t, later, "github_diff", `{"repo":"example-org/example-repo","number":13,"path":"src/file1001.go"}`)
+	mustContain(t, out, "src/file1001.go (added, +1 −0)", "+file1001")
+	if pages := filePages(*laterSeen, 13); pages != 11 {
+		t.Errorf("the file #1001 lookup fetched %d pages, want 11", pages)
+	}
+
+	// A short first page still stops after one request.
+	small, smallSeen := fakeAPI(t)
+	call(t, small, "github_diff", `{"repo":"example-org/example-repo","number":12}`)
+	if pages := filePages(*smallSeen, 12); pages != 1 {
+		t.Errorf("a one-page PR fetched %d pages, want 1", pages)
+	}
+}
+
+// filePages counts the paged files requests the fake API saw for a pull request.
+func filePages(seen []string, number int) int {
+	prefix := fmt.Sprintf("/repos/example-org/example-repo/pulls/%d/files?", number)
+	n := 0
+	for _, u := range seen {
+		if strings.HasPrefix(u, prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 func TestChecksWithTheEndOfAFailedLog(t *testing.T) {
@@ -153,6 +254,29 @@ func TestChecksWithTheEndOfAFailedLog(t *testing.T) {
 		"--- FAIL: TestExample\nexit status 1")
 	if len(out) > logTail+1000 {
 		t.Errorf("%d bytes: the log was not cut to its end", len(out))
+	}
+}
+
+func TestTailKeepsValidUTF8OnAnUnbrokenLine(t *testing.T) {
+	// Over logTail bytes with no newline; 6301 is not a multiple of the 3-byte rune,
+	// so the byte cut at len-logTail lands in the middle of a rune.
+	line := strings.Repeat("中", 2100) + "z"
+	if len(line) <= logTail || len(line)%3 == 0 {
+		t.Fatalf("test setup: len=%d must be > %d and not a multiple of 3", len(line), logTail)
+	}
+	got := tail(line, logTail)
+	if !utf8.ValidString(got) {
+		t.Fatalf("tail is not valid UTF-8: %q", got[:40])
+	}
+	body, ok := strings.CutPrefix(got, "[…]\n")
+	if !ok {
+		t.Fatalf("tail is missing the marker prefix: %q", got[:20])
+	}
+	if !strings.HasSuffix(body, "中z") {
+		t.Errorf("tail does not keep the final runes: %q", body[len(body)-20:])
+	}
+	if !strings.HasSuffix(line, body) {
+		t.Errorf("tail is not a suffix of the line")
 	}
 }
 

@@ -2,6 +2,7 @@ package pluginkit
 
 import (
 	"encoding/json"
+	"math"
 	"time"
 )
 
@@ -101,6 +102,16 @@ type View struct {
 	State    string    `json:"state,omitempty"`
 	// RefreshAfter: the apps draw it again after this many seconds while it is on screen (30 at least; 0 never).
 	RefreshAfter int `json:"refresh_after,omitempty"`
+	// Search is a search box on top of the page (UI version 3): the app calls ui.action with its action and values
+	// {"q": the text} once the user stops typing. Leave it out for an app that draws less (UIRequest.Draws(3)).
+	Search *Search `json:"search,omitempty"`
+}
+
+// Search is a View's search box.
+type Search struct {
+	Placeholder string   `json:"placeholder,omitempty"`
+	Value       string   `json:"value,omitempty"`
+	Action      UIAction `json:"action"`
 }
 
 // Section is a group of items.
@@ -186,8 +197,12 @@ type ActionResult struct {
 	OpenURL string `json:"open_url,omitempty"`
 }
 
-// Ratio is a pointer to r, clamped to 0…1 (progress items need one).
+// Ratio is a pointer to r, clamped to 0…1 (progress items need one). NaN, as from 0 used of a 0 limit, is 0: JSON
+// cannot carry it.
 func Ratio(r float64) *float64 {
+	if math.IsNaN(r) {
+		r = 0
+	}
 	r = min(max(r, 0), 1)
 	return &r
 }
